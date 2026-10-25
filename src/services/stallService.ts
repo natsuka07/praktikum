@@ -5,6 +5,8 @@ import {
 import { MenuItemRepository } from "../repositories/menuItemRepository.ts";
 import type { MenuItemDto, StallResponseDto } from "../dtos/stallDto.ts";
 import { NotFoundError } from "../errors/NotFoundError.ts";
+import { ForbiddenError } from "../errors/ForbiddenError.ts";
+import type { AuthUser } from "../types/auth.ts";
 import type {
   CreateStallInput,
   UpdateStallInput,
@@ -57,8 +59,15 @@ export class StallService {
     return this.menuItemRepository.findByStallId(id);
   }
 
-  async createStall(input: CreateStallInput): Promise<StallResponseDto> {
-    const row = await this.stallRepository.create(input);
+  // Pemilik warung = user dari token (bukan dari request body).
+  async createStall(
+    input: CreateStallInput,
+    user: AuthUser,
+  ): Promise<StallResponseDto> {
+    const row = await this.stallRepository.create({
+      ...input,
+      ownerId: user.id,
+    });
     if (!row) throw new NotFoundError("Warung gagal dibuat");
     return this.toDto(row);
   }
@@ -66,7 +75,16 @@ export class StallService {
   async updateStall(
     id: number,
     input: UpdateStallInput,
+    user: AuthUser,
   ): Promise<StallResponseDto> {
+    const existing = await this.stallRepository.findById(id);
+    if (!existing) throw new NotFoundError("Warung tidak ditemukan");
+
+    // owner hanya boleh mengubah warung miliknya; admin boleh semua.
+    if (user.role === "owner" && existing.ownerId !== user.id) {
+      throw new ForbiddenError("Anda hanya boleh mengubah warung milik sendiri");
+    }
+
     const row = await this.stallRepository.update(id, input);
     if (!row) throw new NotFoundError("Warung tidak ditemukan");
     return this.toDto(row);

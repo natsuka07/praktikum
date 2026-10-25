@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { StallService } from "../services/stallService.ts";
 import { getValidated } from "../middlewares/validate.ts";
+import { getAuthUser } from "../middlewares/auth.ts";
 import type {
   CreateStallInput,
   IdParam,
@@ -50,14 +51,21 @@ export class StallController {
 
   createStall = async (_req: Request, res: Response): Promise<void> => {
     const body = getValidated<CreateStallInput>(res, "body");
-    const stall = await this.stallService.createStall(body);
+    const stall = await this.stallService.createStall(
+      body,
+      getAuthUser(res),
+    );
     res.status(201).json({ status: "success", data: stall });
   };
 
   updateStall = async (_req: Request, res: Response): Promise<void> => {
     const { id } = getValidated<IdParam>(res, "params");
     const body = getValidated<UpdateStallInput>(res, "body");
-    const stall = await this.stallService.updateStall(id, body);
+    const stall = await this.stallService.updateStall(
+      id,
+      body,
+      getAuthUser(res),
+    );
     res.status(200).json({ status: "success", data: stall });
   };
 

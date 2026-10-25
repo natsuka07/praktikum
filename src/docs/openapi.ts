@@ -3,6 +3,8 @@ import {
   OpenApiGeneratorV3,
 } from "@asteasolutions/zod-to-openapi";
 import { z } from "zod";
+import { loginSchema, registerSchema } from "../schemas/authSchema.ts";
+import { createReviewSchema } from "../schemas/reviewSchema.ts";
 import {
   createStallSchema,
   idParamSchema,
@@ -11,6 +13,14 @@ import {
 } from "../schemas/stallSchema.ts";
 
 const registry = new OpenAPIRegistry();
+
+// Skema keamanan: JWT Bearer (tombol "Authorize" di Swagger UI).
+registry.registerComponent("securitySchemes", "bearerAuth", {
+  type: "http",
+  scheme: "bearer",
+  bearerFormat: "JWT",
+});
+const secured = [{ bearerAuth: [] as string[] }];
 
 // ----------------------------------------------------------------- schema
 // Komponen schema untuk RESPONS (dibuat khusus di sini). Schema untuk BODY
@@ -64,6 +74,60 @@ const errorSchema = registry.register(
 // Nilai kembalian `register` dipakai sebagai referensi ($ref) di requestBody.
 const stallInput = registry.register("StallInput", createStallSchema);
 const stallUpdate = registry.register("StallUpdate", updateStallSchema);
+const registerInput = registry.register("RegisterInput", registerSchema);
+const loginInput = registry.register("LoginInput", loginSchema);
+const reviewInput = registry.register("ReviewInput", createReviewSchema);
+
+const userSchema = registry.register(
+  "User",
+  z.object({
+    id: z.number().openapi({ example: 12 }),
+    name: z.string().openapi({ example: "Bagas Pratama" }),
+    email: z.string().openapi({ example: "bagas@student.test" }),
+    role: z.enum(["admin", "owner", "customer"]).openapi({ example: "customer" }),
+  }),
+);
+
+const reviewSchema = registry.register(
+  "Review",
+  z.object({
+    id: z.number().openapi({ example: 17 }),
+    stallId: z.number().openapi({ example: 1 }),
+    userId: z.number().openapi({ example: 12 }),
+    rating: z.number().openapi({ example: 5 }),
+    comment: z.string().nullable().openapi({ example: "Enak dan murah!" }),
+    createdAt: z.string().nullable().openapi({ example: "2026-10-25T10:00:00.000Z" }),
+  }),
+);
+
+const userResponse = registry.register(
+  "UserResponse",
+  z.object({ status: z.literal("success"), data: userSchema }),
+);
+
+const loginResponse = registry.register(
+  "LoginResponse",
+  z.object({
+    status: z.literal("success"),
+    data: z.object({
+      token: z.string().openapi({ example: "eyJhbGciOiJIUzI1NiIsInR5cCI6..." }),
+      user: userSchema,
+    }),
+  }),
+);
+
+const reviewResponse = registry.register(
+  "ReviewResponse",
+  z.object({ status: z.literal("success"), data: reviewSchema }),
+);
+
+// Respons error yang dipakai berulang.
+const errJson = (description: string) => ({
+  description,
+  content: { "application/json": { schema: errorSchema } },
+});
+const res401 = errJson("Belum login / token tidak ada atau tidak valid");
+const res403 = errJson("Sudah login tetapi tidak punya akses");
 
 const stallListResponse = registry.register(
   "StallListResponse",
@@ -144,7 +208,9 @@ registry.registerPath({
 registry.registerPath({
   method: "post",
   path: "/api/v1/stalls",
-  summary: "Tambah warung",
+  security: secured,
+  summary: "Tambah warung (owner, admin)",
+  description: "Pemilik warung diambil dari token, bukan dari body.",
   request: {
     body: {
       description: "Data warung baru",
@@ -164,6 +230,8 @@ registry.registerPath({
       description: "Data bentrok dengan data yang sudah ada",
       content: { "application/json": { schema: errorSchema } },
     },
+    401: res401,
+    403: res403,
     500: {
       description: "Kesalahan pada server",
       content: { "application/json": { schema: errorSchema } },
@@ -199,7 +267,10 @@ registry.registerPath({
 registry.registerPath({
   method: "put",
   path: "/api/v1/stalls/{id}",
-  summary: "Update warung",
+  security: secured,
+  summary: "Update warung (owner hanya miliknya, admin)",
+  description:
+    "Owner yang mengubah warung milik orang lain mendapat 403. Admin boleh semua.",
   request: {
     params: idParamSchema,
     body: {
@@ -224,6 +295,8 @@ registry.registerPath({
       description: "Data bentrok dengan data yang sudah ada",
       content: { "application/json": { schema: errorSchema } },
     },
+    401: res401,
+    403: res403,
     500: {
       description: "Kesalahan pada server",
       content: { "application/json": { schema: errorSchema } },
@@ -234,7 +307,8 @@ registry.registerPath({
 registry.registerPath({
   method: "delete",
   path: "/api/v1/stalls/{id}",
-  summary: "Hapus warung",
+  security: secured,
+  summary: "Hapus warung (admin)",
   request: { params: idParamSchema },
   responses: {
     200: {
@@ -245,6 +319,8 @@ registry.registerPath({
       description: "Warung tidak ditemukan",
       content: { "application/json": { schema: errorSchema } },
     },
+    401: res401,
+    403: res403,
     500: {
       description: "Kesalahan pada server",
       content: { "application/json": { schema: errorSchema } },
@@ -270,6 +346,88 @@ registry.registerPath({
       description: "Kesalahan pada server",
       content: { "application/json": { schema: errorSchema } },
     },
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/stalls/{id}/reviews",
+  summary: "Tambah review (semua role yang login)",
+  description: "userId diambil dari token. Rating dan jumlah review warung ikut diperbarui.",
+  security: secured,
+  request: {
+    params: idParamSchema,
+    body: {
+      description: "Data review",
+      content: { "application/json": { schema: reviewInput } },
+    },
+  },
+  responses: {
+    201: {
+      description: "Review berhasil dibuat",
+      content: { "application/json": { schema: reviewResponse } },
+    },
+    400: errJson("Body/parameter tidak valid"),
+    401: res401,
+    404: errJson("Warung tidak ditemukan"),
+    500: errJson("Kesalahan pada server"),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/register",
+  summary: "Registrasi akun (role selalu customer)",
+  request: {
+    body: {
+      description: "Data registrasi",
+      content: { "application/json": { schema: registerInput } },
+    },
+  },
+  responses: {
+    201: {
+      description: "Akun berhasil dibuat",
+      content: { "application/json": { schema: userResponse } },
+    },
+    400: errJson("Body tidak valid"),
+    409: errJson("Email sudah terdaftar"),
+    500: errJson("Kesalahan pada server"),
+  },
+});
+
+registry.registerPath({
+  method: "post",
+  path: "/api/v1/auth/login",
+  summary: "Login dan dapatkan JWT",
+  request: {
+    body: {
+      description: "Kredensial",
+      content: { "application/json": { schema: loginInput } },
+    },
+  },
+  responses: {
+    200: {
+      description: "Login berhasil, berisi token JWT",
+      content: { "application/json": { schema: loginResponse } },
+    },
+    400: errJson("Body tidak valid"),
+    401: errJson("Email atau password salah"),
+    500: errJson("Kesalahan pada server"),
+  },
+});
+
+registry.registerPath({
+  method: "get",
+  path: "/api/v1/auth/me",
+  summary: "Profil user yang sedang login (semua role)",
+  security: secured,
+  responses: {
+    200: {
+      description: "Profil user dari token",
+      content: { "application/json": { schema: userResponse } },
+    },
+    401: res401,
+    500: errJson("Kesalahan pada server"),
   },
 });
 

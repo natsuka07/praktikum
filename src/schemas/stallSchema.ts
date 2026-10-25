@@ -53,16 +53,9 @@ const optionalNullableText = (max: number) =>
   z.string().trim().max(max).nullable().optional();
 
 // -------------------------------------------------------------------- body
+// ownerId TIDAK ada di body: pemilik warung diambil dari token (req user).
 export const createStallSchema = z
   .object({
-    ownerId: z
-      .number({ invalid_type_error: "ownerId harus berupa angka" })
-      .int("ownerId harus bilangan bulat")
-      .positive("ownerId harus lebih dari 0")
-      .openapi({
-        example: 2,
-        description: "ID owner (USERS.id dengan role owner)",
-      }),
     name: z
       .string({ required_error: "name wajib diisi" })
       .trim()
@@ -85,8 +78,12 @@ export const createStallSchema = z
   // .strict() menolak (atau membuang) kunci yang tidak dikenal.
   .strict();
 
-// Semua kolom opsional untuk PUT (update sebagian).
-export const updateStallSchema = createStallSchema.partial();
+// Semua kolom opsional untuk PUT (update sebagian), tetapi body tidak boleh kosong.
+export const updateStallSchema = createStallSchema
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "minimal satu field harus diisi",
+  });
 
 // ------------------------------------------------------------------ types
 export type IdParam = z.infer<typeof idParamSchema>;

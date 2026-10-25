@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import swaggerUi from "swagger-ui-express";
 import { getDb } from "./db/index.ts";
 import { stallRouter } from "./routes/stallRouter.ts";
+import { authRouter } from "./routes/authRouter.ts";
 import { notFoundHandler } from "./middlewares/notFound.ts";
 import { errorHandler } from "./middlewares/errorHandler.ts";
 import { openApiDocument } from "./docs/openapi.ts";
@@ -24,6 +25,7 @@ app.get("/health", async (_req, res) => {
     .json({ status: "success", message: "Server dan database terhubung" });
 });
 
+app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/stalls", stallRouter);
 
 // 404 untuk rute yang tidak dikenal, lalu error handling terpusat (paling akhir).
